@@ -1,0 +1,99 @@
+
+---
+title: "Exercise manner prediction"
+author: "Rdataman"
+date: "Thursday, July 24, 2014"
+output: html_document
+---
+```{r setoptions,echo=FALSE}
+library(knitr)
+opts_chunk$set(echo = TRUE,cache=TRUE )
+```
+# 1. Introduction  
+The goal of the project is to predict the manner of exercise by the data collected from accelerometers(Data source: http://groupware.les.inf.puc-rio.br/har.)
+
+# 2. Raw data
+Download the files and save them in the work directory. Read the data into workspace. The data has already been into training and testing sets.
+```{r Getdata}
+## Download the files if not done
+url1<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url2<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if (!file.exists("training.csv")){download.file(url1,"training.csv") }
+if (!file.exists("testing.csv")){download.file(url2,"testing.csv") }
+## Read the data
+test<-read.csv("testing.csv")
+train<-read.csv("training.csv")
+```
+# 3. Features
+There are 160 columns in the raw data. Some of the columns are totally NAs and should be deleted. The first 7 columns have nothing to do with the exercise. They are not included in the clean data.
+```{r cleandata}
+## Delete the NA cols
+test1 <- test[,colSums(is.na(test))==0]
+train1 <- train[,colSums(is.na(test))==0]
+## Delete the first 7 cols which is not helpful to prediction
+test1 <- test1[,-c(1:7)]
+train1 <- train1[,-c(1:7)]
+## Cehck the number of NAs in both dataframe
+sum(is.na(train1))+sum(is.na(test1))
+```
+Clearly there are no NAs in the new data.
+```{r check predictors}
+## Check if the two dataframe has the same colnames
+which(colnames(train1)!=colnames(test1))
+```
+Only the 53rd colname is different in train ("classe"") and test data("problem_id").
+```{r checkzeroVar}
+## Check if there are zero covariates
+library(caret)
+nsv <- nearZeroVar(train1, saveMetrics=TRUE)
+which(nsv$nzv==TRUE)
+```
+There are no zero covariates. So we have 52 predictors.
+
+# 4. prediction Model
+## 4.1 preprocess data
+Split the train1 into two parts: "TrainTr" for modeling and "trainTe" for cross validation. Preprocess the data to reduce the predictor.
+```{r split train set and preprocess}
+library(randomForest)
+set.seed(10)
+## Split train1
+trainSP <- createDataPartition(y=train1$classe, p=0.7, list=FALSE)
+trainTr <- train1[trainSP,]
+trainTe <- train1[-trainSP,]
+## Preprocess the data to get codes run faster
+## capture only 90% of the variance
+preProc <- preProcess(trainTr[,-53], method = "pca", thresh = 0.90)
+trainset<-predict(preProc,trainTr[,-53])
+```
+## 4.2 Random forests model
+```{r randomforests}
+mfrf<-randomForest(trainTr$classe~.,data=trainset,
+                   preProcess=c("center", "scale"), 
+                   trControl=trainControl(method = "cv", number = 10),
+                   importance=TRUE)
+## show the model information
+mfrf
+```
+The OOB estimate of  error rate: 2.75%. The error rate can be decreased if preprocessing is not performed. But it take much more time to run the code.
+```{r plotrf}
+plot(mfrf,main="Error VS number of trees")
+```
+The plot traces the error rates (out-of-bag, and by each response
+category) as the number of trees increases.
+
+## 4.3 Cross-validation
+Validate the model get before with the data "trainTe"
+```{r crossValidation}
+testset <- predict(preProc,trainTe[,-53])
+confusionMatrix(trainTe$classe, predict(mfrf,testset))
+```
+The accuracy is 0.973, not too bad.  
+
+# 5 Prediction 
+```{r result}
+result0 <- predict(preProc,test1[,-53])
+result <- predict(mfrf,result0)
+result
+```
+
+
